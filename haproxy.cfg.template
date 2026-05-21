@@ -9,7 +9,7 @@ defaults
     timeout server  50s
 
 frontend sni_in
-    # RENDER_PORT will be automatically replaced by start.sh at runtime
+    # RENDER_PORT gets auto-replaced by your start.sh at boot
     bind *:RENDER_PORT
     mode tcp
     
@@ -17,26 +17,21 @@ frontend sni_in
     tcp-request inspect-delay 5s
     tcp-request content accept if { req_ssl_hello_type 1 }
 
-    # ---- SNI ROUTING RULES ----
-    # If the client requests this domain, route to your home/target Tailscale node
-    use_backend tailscale_node1 if { req_ssl_sni -i node1.yourdomain.com }
-    use_backend tailscale_node2 if { req_ssl_sni -i node2.yourdomain.com }
+    # ---- BSNL SNI ROUTING RULE ----
+    # When your phone sends the cvlindia.com SNI, intercept it here
+    use_backend render_tailscale_exit if { req_ssl_sni -i cvlindia.com }
     
-    # FALLBACK: If it is not TLS, or doesn't match SNI, send it to your local Python server
-    # This ensures Render's HTTP health checks still pass perfectly!
+    # FALLBACK: If Render sends a raw HTTP health check, route it to Python
     default_backend render_health_check
 
 # ---- BACKEND DESTINATIONS ----
-backend tailscale_node1
+backend render_tailscale_exit
     mode tcp
-    # Replace with your target Tailscale machine's internal IP and port
-    server node1 100.x.y.z:443 check
-
-backend tailscale_node2
-    mode tcp
-    server node2 100.a.b.c:443 check
+    # 127.0.0.1:1080 points to a local SOCKS5/HTTP proxy we can handle inside the container
+    # Or, if you want to forward raw traffic directly into the userspace tun, we handle it via proxy protocol.
+    server local_exit 127.0.0.1:8080 check
 
 backend render_health_check
     mode tcp
-    # Points to your internal Python HTTP health check server
+    # Points directly to your internal Python health check web server
     server python_internal 127.0.0.1:8080 check
