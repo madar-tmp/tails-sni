@@ -1,0 +1,42 @@
+global
+    log stdout format raw local0
+
+defaults
+    log     global
+    mode    tcp
+    timeout connect 5s
+    timeout client  50s
+    timeout server  50s
+
+frontend sni_in
+    # RENDER_PORT will be automatically replaced by start.sh at runtime
+    bind *:RENDER_PORT
+    mode tcp
+    
+    # Inspect the packet for TLS SNI headers
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req_ssl_hello_type 1 }
+
+    # ---- SNI ROUTING RULES ----
+    # If the client requests this domain, route to your home/target Tailscale node
+    use_backend tailscale_node1 if { req_ssl_sni -i node1.yourdomain.com }
+    use_backend tailscale_node2 if { req_ssl_sni -i node2.yourdomain.com }
+    
+    # FALLBACK: If it is not TLS, or doesn't match SNI, send it to your local Python server
+    # This ensures Render's HTTP health checks still pass perfectly!
+    default_backend render_health_check
+
+# ---- BACKEND DESTINATIONS ----
+backend tailscale_node1
+    mode tcp
+    # Replace with your target Tailscale machine's internal IP and port
+    server node1 100.x.y.z:443 check
+
+backend tailscale_node2
+    mode tcp
+    server node2 100.a.b.c:443 check
+
+backend render_health_check
+    mode tcp
+    # Points to your internal Python HTTP health check server
+    server python_internal 127.0.0.1:8080 check
